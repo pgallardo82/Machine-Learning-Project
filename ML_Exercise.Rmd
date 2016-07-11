@@ -1,0 +1,101 @@
+## Machine Learning Course Project
+#### Patricio Gallardo
+
+### Introduction
+
+Through devices such as Jawbone Up, Nike FuelBand, and Fitbit it is possible to collect advantageous data regarding personal activity in a relatively inexpensive way. These devices are employed by people that wish to quantify self movement in order to assess their health and find behavioral patterns. Six individuals were asked to perform barbell lifts in 5 disctinct manners and the goal of the project is to understand the relationships between several variables that were investigated during the test. For more information please refer to the following website: http://groupware.les.inf.puc-rio.br/har. 
+
+### Summary
+
+### Step 1: Loading, cleaning and processing dataset
+
+The *.csv files are loaded into R as data frames. The loading function also includes arguments that process factor type vectors and also manages the interpretation criteria for NA values. The first seven column vectors of the data frame correspond to information that does not reflect any measurement over the participant´s performance, hence they are removed from the training set. The data frame that will be used for the modelling process consists of 53 variables.  
+
+```{r eval=TRUE}
+raw_training<-read.csv("pml-training.csv",stringsAsFactors = FALSE,na.strings=c("NA",""))
+testing<-read.csv("pml-testing.csv",stringsAsFactors = FALSE,na.strings=c("NA",""))
+NA_columns<-apply(raw_training,2,function(x){sum(is.na(x))})
+raw_training<-raw_training[,which(NA_columns==0)]
+raw_training<-raw_training[,-c(1:7)]
+```
+
+### Step 2: Analysis of most relevant variables
+
+
+In this section, the raw dataset is used to develop a model based on tree prediction. Upon this model, the most relevant variables are identified. Cross validation is used as a train control method for resampling.Parallel processing is introduced as an argument in the train control function
+
+```{r eval=TRUE, message=FALSE, warning=FALSE}
+library(caret)
+library(rpart)
+library(randomForest)
+library(doParallel)
+library(ggplot2)
+trial_control<-trainControl(method="cv",number = 10,repeats = 3,allowParallel=TRUE)
+trial_model<-train(classe ~., data=raw_training,method="rpart",trControl=trial_control)
+var_hierarchy<-varImp(trial_model,scale=TRUE)
+```
+
+Every variable is given an importance score on the scale of 1 to 100. Only the variables with scores greater than 0 are selected for our model. This  operation will surely reduce the computational time. 
+
+```{r var_hierarchy, echo=FALSE}
+plot(var_hierarchy,top=14)
+```
+
+```{r eval=TRUE}
+training<-cbind(raw_training[,row.names(var_hierarchy$importance)[var_hierarchy$importance>0]],raw_training$classe)
+colnames(training)[15]<-c("classe")
+```
+
+### Step 3: Data partition
+
+The training data frame is divided in two subsets, sample train and test train.
+
+```{r eval=TRUE}
+inTrain<-createDataPartition(y=training$classe, p=0.75, list=FALSE)
+sample_train<-training[inTrain,]
+sample_test<-training[-inTrain,]
+```
+
+### Step 4: Model Fit
+
+Random Forest will be the method employed for our model. A training control is also defined with a specific resampling method for random forest (oob) methods. Parallel processing is also enabled in order to improve computational time. 
+
+```{r eval=TRUE, message=FALSE, warning=FALSE}
+mod_control<-trainControl(method="oob",number = 10,repeats = 5,allowParallel = TRUE)
+modFit<-train(classe ~.,data=sample_train,method="rf",trControl=mod_control)
+modFit
+```
+
+### Step 5: Confusion matrix and out of sample error
+
+The confusion matrix is obtained and the accuracy obtained for the test set obtained upon the initial training set is approximately 98.9%. 
+
+```{r eval=TRUE}
+pred<-predict(modFit,sample_test)
+confusionMatrix(pred,sample_test$classe)
+```
+
+The expected out of sample error (1.18%) is calculated as follows:
+
+```{r eval=TRUE}
+sum(pred!=sample_test$classe)/length(sample_test$classe)
+```
+
+The error associated to this model can be graphiacally interpreted through the following graph:
+
+```{r pred, sample_test, echo=FALSE}
+True_Predicted<-pred==sample_test$classe
+pred_plot<-qplot(pitch_forearm, roll_forearm, colour=True_Predicted,data=sample_test)
+pred_plot
+```
+
+### Step 6: Prediction over test set with 20 observations
+
+The model is employed to predict the quality of lifts with respect to 20 observations
+
+```{r eval=TRUE}
+pred_final<-predict(modFit,testing)
+pred_final
+```
+
+
